@@ -1,0 +1,90 @@
+#!/bin/bash
+
+aspect="240x240"
+ext="jpg"
+url="${SMALLTV_URL-http://giftv.home}"
+# Set this file to be shown in giftv photo mode
+img="smalltvstill.$ext"
+tmpdir=$(mktemp -d)
+# Lower values will make selection more precise, but also slow
+step=20
+maxx=3440
+maxy=1440
+
+setup () {
+    local screeninfo
+    if [[ $XDG_CURRENT_DESKTOP != KDE ]] || [[ $XDG_SESSION_TYPE != wayland ]]
+    then
+        echo "This only works with KDE/Plasma under wayland"
+        exit 1
+    fi
+    mkdir -p "$tmpdir"
+    set $(kscreen-doctor -j | jq -r '.outputs[0].size | [.width, .height] | join(" ")')
+    maxx=$1
+    maxy=$2
+}
+
+tmpfile () {
+    mktemp --suffix=".$ext" -p "$tmpdir"
+}
+
+# Check the -r option in slurp(1) for this to make sense
+rectangular_selection () {
+    local anchor
+    for x in $(seq 1 $step $((maxx-step)))
+    do
+        for y in $(seq 1 $step $((maxy-step)))
+        do
+            echo "$x,$y $aspect"
+        done
+    done \
+        | slurp -r \
+        | sed -E "s/([^ ]*) .*/${aspect}+\1/;y/,/+/"
+}
+
+fullscreen_image () {
+    local i
+    i="$(tmpfile)"
+    spectacle --nonotify --fullscreen --background --output "$i"
+    echo $i
+}
+
+cropped_image () {
+    local i
+    i=$(tmpfile)
+    gm convert "$(fullscreen_image)" -crop "$(rectangular_selection)" "$i"
+    echo $i
+}
+
+freeform_selected_image () {
+    local i
+    i=$(tmpfile)
+    spectacle --region --nonotify --background --output "$i"
+    echo $i
+}
+
+upload () {
+    local still
+    still="${tmpdir}/${img}"
+    mv -f "$1" "$still"
+    curl --silent --globoff -X POST \
+        -H "Content-Type: multipart/form-data" \
+        -F "file=@$still" \
+        "${url}/doUpload?dir=/image/" \
+        >/dev/null
+}
+
+cleanup () {
+    rm -rf "$tmpdir"
+    exit
+}
+
+setup
+trap cleanup 1 2 3 6 15
+if [[ $1 == free ]]
+then
+    upload "$(freeform_selected_image)"
+else
+    upload "$(cropped_image)"
+fi
+cleanup
