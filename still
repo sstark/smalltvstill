@@ -74,6 +74,10 @@ upload () {
         >/dev/null
 }
 
+set_photoalbum_mode () {
+    curl --silent "${url}/set?theme=3"
+}
+
 cleanup () {
     rm -rf "$tmpdir"
     exit
@@ -87,4 +91,5 @@ then
 else
     upload "$(cropped_image)"
 fi
+set_photoalbum_mode
 cleanup
